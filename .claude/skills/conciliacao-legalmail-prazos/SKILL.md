@@ -57,7 +57,12 @@ Para cada item da Entrada:
    embargos, aplicar a regra de disponibilização eletrônica (D+1 útil como
    marco inicial), preferir as datas do próprio eProc/PJe quando
    informadas, e aplicar a margem de segurança interna de 2 dias úteis
-   (exceto em janelas puramente administrativas de ciência).
+   (exceto em janelas puramente administrativas de ciência). Use
+   `tribunais.calendario_para_tribunal(item.tribunal, anos)` para obter o
+   calendário certo — cobre feriados forenses e suspensão de prazo próprios
+   de TJSC e TRT12 (~85% dos processos); para qualquer outro tribunal ele
+   avisa `confirmado=False`, sinal para conferir feriados locais na mão em
+   vez de assumir que não há nenhum (ver `docs/CALENDARIOS_FORENSES.md`).
 7. Criar a tarefa no Legalmail com Tipo, Encarregado (advogado responsável),
    Descrição (sem dois-pontos) e Prazo, quando o backend suportar
    (`client.criar_tarefa`). Quando não suportar (é o caso da API pública

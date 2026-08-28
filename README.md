@@ -60,6 +60,8 @@ o cliente real a partir dessa variável de ambiente.
   técnica completa e fonte de verdade das regras de negócio da rotina.
 - `docs/legalmail-openapi.json`: especificação OpenAPI real da API do
   Legalmail, fornecida pelo escritório.
+- `docs/CALENDARIOS_FORENSES.md`: fontes e processo de atualização anual
+  dos calendários forenses por tribunal (TJSC, TRT12).
 - `.claude/skills/conciliacao-legalmail-prazos/SKILL.md`: resumo operacional
   do skill, referenciando o código deste repositório.
 
@@ -68,6 +70,7 @@ o cliente real a partir dessa variável de ambiente.
 ```
 src/legalmail_prazos/
   holidays.py             calendário de dias não úteis (feriados nacionais, recesso forense)
+  tribunais.py            feriados forenses e suspensões de prazo específicas por tribunal (TJSC, TRT12)
   prazos.py               motor de cálculo de prazos (CPC, CLT, Juizados Especiais)
   planilha.py             leitura/escrita segura da planilha PRAZOS BECKER
   legalmail_client.py     contrato de acesso ao Legalmail (Protocol)
@@ -93,9 +96,16 @@ teste faz uma chamada de rede real nem consome créditos da API).
   verdade via `POST /api/v1/lawsuit/assign`
   (`rotina.processar_parte1` chama isso automaticamente, resolvendo o nome
   do advogado para o id de usuário do Legalmail).
-- Feriados estaduais/municipais específicos de cada tribunal/comarca, que
-  devem ser informados via `Calendario(feriados_extra=...)` — só feriados
-  nacionais e o recesso forense do art. 220 do CPC vêm prontos.
+- Feriados estaduais/municipais específicos de cada tribunal/comarca.
+  `legalmail_prazos.tribunais.calendario_para_tribunal(tribunal, anos)` já
+  cobre TJSC e TRT12 para 2026 (~85% dos processos do escritório, com fonte
+  citada no código — Resolução GP TJSC n. 1/2026 e Portaria Calendário TRT12
+  2026), incluindo a suspensão de prazo de 20/dez a 20/jan (mais longa que o
+  recesso genérico do CPC). Para qualquer outro tribunal, ou para anos
+  diferentes de 2026, a função retorna `confirmado=False` — sinal para
+  conferir manualmente antes de confiar no cálculo, em vez de assumir que
+  não há feriado nenhum. Ver `docs/CALENDARIOS_FORENSES.md` para o processo
+  de atualização anual.
 
 ## Rodando os testes
 

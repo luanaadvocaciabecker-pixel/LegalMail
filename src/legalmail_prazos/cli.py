@@ -1,11 +1,10 @@
 """CLI utilitária para partes da rotina que não dependem de um cliente Legalmail real.
 
-Não há confirmação de que o Legalmail exponha uma API pública documentada;
-por isso este CLI cobre apenas as operações que podem ser executadas
-diretamente contra a planilha e o motor de cálculo de prazos (úteis para
-conferência manual). O fluxo completo (ler a Entrada, criar tarefas,
-arquivar para o Acervo) requer implementar :class:`legalmail_prazos.legalmail_client.LegalmailClient`
-com o backend real disponível no escritório.
+Cobre as operações que podem ser executadas diretamente contra a planilha e
+o motor de cálculo de prazos, úteis para conferência manual. O fluxo
+completo (ler a Entrada, arquivar para o Acervo, encarregar o responsável)
+usa :class:`legalmail_prazos.legalmail_api_client.LegalmailApiClient`, que
+requer a variável de ambiente ``LEGALMAIL_API_KEY`` (ver ``.env.example``).
 """
 
 from __future__ import annotations
@@ -24,6 +23,7 @@ from .planilha import (
     processos_na_aba_prazos,
 )
 from .prazos import RegimeContagem, calcular_prazo
+from .tribunais import calendario_para_tribunal
 from openpyxl import load_workbook
 
 
@@ -44,10 +44,19 @@ def _cmd_verificar_processo(args: argparse.Namespace) -> int:
 def _cmd_calcular_prazo(args: argparse.Namespace) -> int:
     data_disponibilizacao = date.fromisoformat(args.data_disponibilizacao)
     regime = RegimeContagem(args.regime)
-    calendario = Calendario(
-        anos=(data_disponibilizacao.year, data_disponibilizacao.year + 1),
-        aplicar_recesso_forense=args.recesso_forense,
-    )
+    anos = (data_disponibilizacao.year, data_disponibilizacao.year + 1)
+
+    if args.tribunal:
+        calendario, confirmado = calendario_para_tribunal(args.tribunal, anos)
+        if not confirmado:
+            print(
+                f"aviso, não há feriados forenses próprios pesquisados para "
+                f"'{args.tribunal}' neste ano — usando só feriados nacionais, "
+                "confira manualmente feriados estaduais/regimentais locais"
+            )
+    else:
+        calendario = Calendario(anos=anos, aplicar_recesso_forense=args.recesso_forense)
+
     prazo = calcular_prazo(
         data_disponibilizacao=data_disponibilizacao,
         quantidade_dias=args.quantidade_dias,
@@ -92,7 +101,18 @@ def construir_parser() -> argparse.ArgumentParser:
     p_prazo.add_argument(
         "--recesso-forense",
         action="store_true",
-        help="Aplicar o recesso forense do art. 220 do CPC (só para prazos cíveis).",
+        help=(
+            "Aplicar o recesso forense genérico do art. 220 do CPC (só para prazos "
+            "cíveis). Ignorado se --tribunal for informado."
+        ),
+    )
+    p_prazo.add_argument(
+        "--tribunal",
+        help=(
+            "Tribunal do processo (ex. 'TJSC 1G', 'TRT12 2G'), para usar o calendário "
+            "forense específico pesquisado em legalmail_prazos.tribunais, em vez do "
+            "recesso genérico. Avisa quando não há dado pesquisado para o tribunal."
+        ),
     )
     p_prazo.add_argument("--sem-margem-seguranca", action="store_true")
     p_prazo.set_defaults(func=_cmd_calcular_prazo)
