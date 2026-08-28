@@ -144,11 +144,11 @@ class LegalmailApiClient:
 
         self._api.lawsuit_archive(int(id_legalmail_processo))
 
-    def encarregar_advogado(self, id_processo: str, id_usuario: int) -> None:
-        """``POST /api/v1/lawsuit/assign`` — não faz parte do Protocol, mas está
-        disponível na API real para automatizar a seção 8 (Encarregado)."""
+    def encarregar_advogado(self, id_legalmail_processo: str, id_usuario: int) -> None:
+        """``POST /api/v1/lawsuit/assign`` — mecanismo real de encaminhar ao
+        responsável quando não há suporte a "criar tarefa" (ver seção 8)."""
 
-        self._api.lawsuit_assign(int(id_processo), id_usuario)
+        self._api.lawsuit_assign(int(id_legalmail_processo), id_usuario)
 
     def localizar_usuario_por_nome(self, nome: str) -> int | None:
         """Busca ``idusuarios`` pelo nome exato (case-insensitive) em ``GET /api/v1/users``."""

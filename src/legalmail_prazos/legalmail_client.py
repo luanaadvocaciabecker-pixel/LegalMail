@@ -95,6 +95,22 @@ class LegalmailClient(Protocol):
         """Move o processo da Entrada para o Acervo."""
         ...
 
+    def localizar_usuario_por_nome(self, nome: str) -> int | None:
+        """Resolve o nome do advogado para o id de usuário do Legalmail.
+
+        Retorna ``None`` quando não encontrar correspondência exata; nunca
+        inventa um id (seção 7)."""
+        ...
+
+    def encarregar_advogado(self, id_legalmail_processo: str, id_usuario: int) -> None:
+        """Encarrega o usuário responsável pelo processo no Legalmail.
+
+        Serve como o mecanismo real de "encaminhar a um responsável" quando
+        o backend não suporta criar uma tarefa (ver :meth:`criar_tarefa`) —
+        a API pública, por exemplo, não tem conceito de tarefa, mas tem
+        ``POST /api/v1/lawsuit/assign`` para isso."""
+        ...
+
     def listar_audiencias(self, *, a_partir_de: date) -> list[AudienciaLegalmail]:
         """Lista audiências (inclusive canceladas) com data a partir de ``a_partir_de``."""
         ...

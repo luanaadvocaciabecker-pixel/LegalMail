@@ -25,8 +25,10 @@ from legalmail_prazos.rotina import (
 @dataclass
 class FakeLegalmailClient:
     historico_por_processo: dict[str, list[TipoTarefaHistorico]] = field(default_factory=dict)
+    usuario_id_por_nome: dict[str, int] = field(default_factory=dict)
     tarefas_criadas: list[NovaTarefaLegalmail] = field(default_factory=list)
     processos_arquivados: list[str] = field(default_factory=list)
+    processos_encarregados: list[tuple[str, int]] = field(default_factory=list)
 
     def listar_entrada(self):  # pragma: no cover - não usado nestes testes
         return []
@@ -40,6 +42,12 @@ class FakeLegalmailClient:
 
     def arquivar_para_acervo(self, id_legalmail_processo: str) -> None:
         self.processos_arquivados.append(id_legalmail_processo)
+
+    def localizar_usuario_por_nome(self, nome: str) -> int | None:
+        return self.usuario_id_por_nome.get(nome)
+
+    def encarregar_advogado(self, id_legalmail_processo: str, id_usuario: int) -> None:
+        self.processos_encarregados.append((id_legalmail_processo, id_usuario))
 
     def listar_audiencias(self, *, a_partir_de: date):  # pragma: no cover
         return []
@@ -110,6 +118,115 @@ def test_processar_parte1_caso_novo_cria_linha_tarefa_e_arquiva(planilha_sinteti
     wb = load_workbook(planilha_sintetica)
     processos = {ws_row[1] for ws_row in wb[ABA_PRAZOS].iter_rows(min_row=9, values_only=True)}
     assert "0001000-00.2026.5.12.0001" in processos
+
+
+def test_processar_parte1_encarrega_advogado_quando_usuario_e_encontrado(
+    planilha_sintetica: Path, tmp_path: Path
+):
+    client = FakeLegalmailClient(usuario_id_por_nome={"BELTRANA SILVA": 42})
+    item = ItemEntrada(
+        id_legalmail="item-5",
+        numero_processo="0009000-00.2026.5.12.0001",
+        tribunal="TRT12 1G",
+        cliente_x_parte="CLIENTE TESTE NOVE",
+        conteudo_intimacao="Decisão para ciência.",
+        data_disponibilizacao=date(2026, 8, 24),
+    )
+    decisao = DecisaoItemEntrada(
+        item=item,
+        descricao_tarefa="Ciência de decisão proferida nos autos",
+        prazo=_prazo_teste(),
+        encarregado_override="BELTRANA SILVA",
+    )
+
+    relatorio = processar_parte1(
+        decisoes=[decisao],
+        client=client,
+        caminho_planilha=planilha_sintetica,
+        caminho_prazos_nums_json=tmp_path / "prazos_nums.json",
+        pasta_outputs=tmp_path / "outputs",
+    )
+
+    assert relatorio.processos_encarregados == 1
+    assert client.processos_encarregados == [("item-5", 42)]
+    assert not any("encarregar" in limite for limite in relatorio.limitacoes)
+
+
+def test_processar_parte1_reporta_limitacao_quando_usuario_nao_encontrado(
+    planilha_sintetica: Path, tmp_path: Path
+):
+    client = FakeLegalmailClient()  # usuario_id_por_nome vazio
+    item = ItemEntrada(
+        id_legalmail="item-6",
+        numero_processo="0010000-00.2026.5.12.0001",
+        tribunal="TRT12 1G",
+        cliente_x_parte="CLIENTE TESTE DEZ",
+        conteudo_intimacao="Decisão para ciência.",
+        data_disponibilizacao=date(2026, 8, 24),
+    )
+    decisao = DecisaoItemEntrada(
+        item=item,
+        descricao_tarefa="Ciência de decisão proferida nos autos",
+        prazo=_prazo_teste(),
+        encarregado_override="ADVOGADO SEM CADASTRO NO LEGALMAIL",
+    )
+
+    relatorio = processar_parte1(
+        decisoes=[decisao],
+        client=client,
+        caminho_planilha=planilha_sintetica,
+        caminho_prazos_nums_json=tmp_path / "prazos_nums.json",
+        pasta_outputs=tmp_path / "outputs",
+    )
+
+    assert relatorio.processos_encarregados == 0
+    assert client.processos_encarregados == []
+    assert any("encarregar" in limite for limite in relatorio.limitacoes)
+
+
+class FakeLegalmailApiOnlyClient(FakeLegalmailClient):
+    """Simula o adaptador real da API pública: sem tarefa, sem histórico."""
+
+    def historico_tarefas_do_processo(self, id_legalmail_processo: str):
+        raise NotImplementedError("sem histórico de tarefas na API pública")
+
+    def criar_tarefa(self, tarefa: NovaTarefaLegalmail) -> str:
+        raise NotImplementedError("sem endpoint de criar tarefa na API pública")
+
+
+def test_processar_parte1_degrada_sem_crashar_quando_api_nao_suporta_tarefa(
+    planilha_sintetica: Path, tmp_path: Path
+):
+    client = FakeLegalmailApiOnlyClient(usuario_id_por_nome={"BELTRANA SILVA": 42})
+    item = ItemEntrada(
+        id_legalmail="item-7",
+        numero_processo="0011000-00.2026.5.12.0001",
+        tribunal="TRT12 1G",
+        cliente_x_parte="CLIENTE TESTE ONZE",
+        conteudo_intimacao="Decisão para ciência.",
+        data_disponibilizacao=date(2026, 8, 24),
+    )
+    decisao = DecisaoItemEntrada(
+        item=item,
+        descricao_tarefa="Ciência de decisão proferida nos autos",
+        prazo=_prazo_teste(),
+        encarregado_override="BELTRANA SILVA",
+    )
+
+    relatorio = processar_parte1(
+        decisoes=[decisao],
+        client=client,
+        caminho_planilha=planilha_sintetica,
+        caminho_prazos_nums_json=tmp_path / "prazos_nums.json",
+        pasta_outputs=tmp_path / "outputs",
+    )
+
+    # A tarefa não pôde ser criada, mas o encaminhamento ao responsável e o
+    # arquivamento continuam funcionando via API.
+    assert relatorio.tarefas_criadas == 0
+    assert relatorio.processos_encarregados == 1
+    assert client.processos_arquivados == ["item-7"]
+    assert any("tarefa" in limite for limite in relatorio.limitacoes)
 
 
 def test_processar_parte1_caso_recorrente_nao_duplica_linha(planilha_sintetica: Path, tmp_path: Path):

@@ -78,7 +78,10 @@ teste faz uma chamada de rede real nem consome créditos da API).
   de um agente com acesso ao texto da intimação; o código apenas calcula as
   datas a partir dos parâmetros já decididos (`legalmail_prazos.prazos`).
 - Criar a tarefa (Tipo/Descrição/Prazo) e tudo relacionado a audiências,
-  por não existirem na API — ver seção acima.
+  por não existirem na API — ver seção acima. Mesmo sem "tarefa", a rotina
+  encaminha ao responsável de verdade via `POST /api/v1/lawsuit/assign`
+  (`rotina.processar_parte1` chama isso automaticamente, resolvendo o nome
+  do advogado para o id de usuário do Legalmail).
 - Feriados estaduais/municipais específicos de cada tribunal/comarca, que
   devem ser informados via `Calendario(feriados_extra=...)` — só feriados
   nacionais e o recesso forense do art. 220 do CPC vêm prontos.

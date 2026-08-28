@@ -56,7 +56,16 @@ Para cada item da Entrada:
    informadas, e aplicar a margem de segurança interna de 2 dias úteis
    (exceto em janelas puramente administrativas de ciência).
 7. Criar a tarefa no Legalmail com Tipo, Encarregado (advogado responsável),
-   Descrição (sem dois-pontos) e Prazo.
+   Descrição (sem dois-pontos) e Prazo, quando o backend suportar
+   (`client.criar_tarefa`). Quando não suportar (é o caso da API pública
+   hoje, que não tem esse conceito), `rotina.processar_parte1` não trava
+   nisso, registra a limitação e segue em frente.
+7.1. Encaminhar ao responsável de qualquer forma: resolver o nome do
+   advogado para o id de usuário do Legalmail (`client.localizar_usuario_por_nome`)
+   e encarregá-lo diretamente no processo (`client.encarregar_advogado`,
+   que na API real chama `POST /api/v1/lawsuit/assign`). Isso funciona
+   mesmo quando "criar tarefa" não é suportado — é o mecanismo real de
+   roteamento ao responsável.
 8. Arquivar o processo da Entrada para o Acervo.
 
 Gravação da planilha sempre via `fazer_backup` + `salvar_com_seguranca`

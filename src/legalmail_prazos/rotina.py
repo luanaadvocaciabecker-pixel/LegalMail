@@ -103,6 +103,7 @@ class ResultadoCasoNovo:
 class RelatorioConciliacao:
     casos_novos: list[ResultadoCasoNovo] = field(default_factory=list)
     tarefas_criadas: int = 0
+    processos_encarregados: int = 0
     pericias_adicionadas: int = 0
     audiencias_adicionadas: int = 0
     limitacoes: list[str] = field(default_factory=list)
@@ -126,6 +127,12 @@ class RelatorioConciliacao:
         partes.append(
             f"Foram criadas {self.tarefas_criadas} tarefas no Legalmail com os prazos calculados."
         )
+
+        if self.processos_encarregados:
+            partes.append(
+                f"Foram encarregados {self.processos_encarregados} processos ao advogado "
+                "responsável correspondente."
+            )
 
         if self.pericias_adicionadas:
             partes.append(
@@ -228,7 +235,11 @@ def processar_parte1(
             adicionar_linha_pericia(wb, decisao.pericia)
             relatorio.pericias_adicionadas += 1
 
-        historico = client.historico_tarefas_do_processo(item.id_legalmail)
+        try:
+            historico = client.historico_tarefas_do_processo(item.id_legalmail)
+        except NotImplementedError:
+            historico = []
+
         tipo = decisao.tipo_tarefa_sugerido or escolher_tipo_tarefa(
             historico, decisao.descricao_tarefa
         )
@@ -238,17 +249,44 @@ def processar_parte1(
             )
             tipo = "(a confirmar)"
 
-        client.criar_tarefa(
-            NovaTarefaLegalmail(
-                id_legalmail_processo=item.id_legalmail,
-                tipo=tipo,
-                encarregado=advogado,
-                descricao=decisao.descricao_tarefa,
-                prazo_legal=decisao.prazo.data_final_legal,
-                prazo_interno=decisao.prazo.data_final_interna,
+        try:
+            client.criar_tarefa(
+                NovaTarefaLegalmail(
+                    id_legalmail_processo=item.id_legalmail,
+                    tipo=tipo,
+                    encarregado=advogado,
+                    descricao=decisao.descricao_tarefa,
+                    prazo_legal=decisao.prazo.data_final_legal,
+                    prazo_interno=decisao.prazo.data_final_interna,
+                )
             )
-        )
-        relatorio.tarefas_criadas += 1
+            relatorio.tarefas_criadas += 1
+        except NotImplementedError as exc:
+            relatorio.limitacoes.append(
+                f"não foi possível criar a tarefa de {item.cliente_x_parte} processo "
+                f"{item.numero_processo} ({exc}), lançar manualmente na interface do Legalmail"
+            )
+
+        # Encaminha ao responsável mesmo quando o backend não suporta criar tarefa
+        # (ver seção 8 e a nota sobre encarregar_advogado no contrato LegalmailClient).
+        try:
+            id_usuario = client.localizar_usuario_por_nome(advogado)
+        except NotImplementedError:
+            id_usuario = None
+        if id_usuario is None:
+            relatorio.limitacoes.append(
+                f"não foi possível localizar o usuário do Legalmail correspondente a {advogado} "
+                f"para encarregar o processo {item.numero_processo}"
+            )
+        else:
+            try:
+                client.encarregar_advogado(item.id_legalmail, id_usuario)
+                relatorio.processos_encarregados += 1
+            except NotImplementedError as exc:
+                relatorio.limitacoes.append(
+                    f"não foi possível encarregar {advogado} pelo processo {item.numero_processo} "
+                    f"({exc})"
+                )
 
         client.arquivar_para_acervo(item.id_legalmail)
 
