@@ -9,9 +9,12 @@ Legalmail (se/quando exposta), exportação CSV manual, ou um adaptador de
 automação de navegador — possa implementá-lo sem alterar as regras de
 negócio das seções 4 a 10.
 
-Nenhuma credencial ou endpoint real do Legalmail é assumido aqui: não há
-documentação pública confirmada da API. Use :class:`LegalmailClient` como
-o ponto de extensão para plugar o backend real quando ele existir.
+Este módulo em si não assume nenhuma credencial ou endpoint concreto — é só
+o contrato. A implementação real sobre a API pública do Legalmail está em
+:mod:`legalmail_prazos.legalmail_api_client` (ver ``docs/legalmail-openapi.json``
+para a especificação completa); ela cobre listar a Entrada, arquivar para o
+Acervo e encarregar o advogado responsável, mas não cobre criação de tarefa
+nem audiências, por não existirem endpoints para isso na API hoje.
 """
 
 from __future__ import annotations

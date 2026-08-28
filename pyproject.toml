@@ -9,6 +9,7 @@ description = "Conciliação diária da Entrada do Legalmail com a planilha PRAZ
 requires-python = ">=3.10"
 dependencies = [
     "openpyxl>=3.1",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]

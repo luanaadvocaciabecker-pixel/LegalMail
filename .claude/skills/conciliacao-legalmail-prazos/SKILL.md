@@ -87,10 +87,24 @@ processamento de algum item.
 
 ## Camada de acesso ao Legalmail
 
-Não há confirmação de que o Legalmail exponha uma API pública documentada.
-A interface `legalmail_prazos.legalmail_client.LegalmailClient` define o
-contrato (listar Entrada, histórico de tarefas do processo, criar tarefa,
-arquivar para o Acervo, listar audiências) que qualquer backend concreto
-deve implementar — API real quando existir, exportação manual, ou um
-adaptador de automação de navegador. Ver seção 11 do documento de
-referência para mais detalhes sobre essa separação.
+O Legalmail tem uma API pública real e paga por crédito
+(`docs/legalmail-openapi.json`). `legalmail_prazos.legalmail_api_client.LegalmailApiClient`
+implementa o contrato `LegalmailClient` sobre ela:
+
+- Suportado pela API: listar a Entrada (`GET /api/v1/notices`, com o teor
+  completo da intimação), consultar o processo e seu prazo ativo
+  (`GET /api/v1/lawsuit/detail`, campo `data_prazo`, somente leitura),
+  arquivar para o Acervo (`POST /api/v1/lawsuit/archive`), encarregar o
+  advogado responsável (`POST /api/v1/lawsuit/assign`) e listar usuários do
+  workspace (`GET /api/v1/users`).
+- Não suportado pela API, continua manual na interface: criar uma tarefa
+  com Tipo/Descrição/Prazo (não há endpoint para isso nem para escrever
+  `data_prazo` diretamente) e qualquer coisa de audiências (não existe
+  endpoint de audiências). `LegalmailApiClient` levanta
+  `RecursoNaoSuportadoPelaApiError` nesses métodos, explicando a limitação
+  em vez de simular um comportamento que a API não tem.
+
+`GET /api/v1/notices` é cobrado por requisição (R$ 0,05, só em 2xx) —
+`listar_entrada` deve ser chamado uma vez por execução diária, nunca em
+laço. A chave de API fica em `LEGALMAIL_API_KEY` (variável de ambiente, ver
+`.env.example`), nunca em código ou em texto de conversa.
