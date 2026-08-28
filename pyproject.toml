@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legalmail-prazos"
+version = "0.1.0"
+description = "Conciliação diária da Entrada do Legalmail com a planilha PRAZOS BECKER (via código/API, sem automação de navegador)"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+conciliacao-legalmail-prazos = "legalmail_prazos.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

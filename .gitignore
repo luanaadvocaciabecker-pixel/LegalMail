@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# Dados reais do escritório nunca devem ser versionados neste repositório.
+*.xlsx
+prazos_nums.json
