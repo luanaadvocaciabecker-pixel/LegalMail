@@ -26,9 +26,15 @@ A partir da especificação OpenAPI real fornecida pelo escritório:
 - **Não coberto pela API** (continua manual, na interface do Legalmail):
   criar uma tarefa com Tipo/Descrição/Prazo (não existe endpoint para isso,
   nem para definir `data_prazo` diretamente — é somente leitura, gerido pela
-  própria plataforma) e qualquer coisa relacionada a audiências (não há
-  endpoint de audiências na API). `LegalmailApiClient` levanta
-  `RecursoNaoSuportadoPelaApiError` nesses métodos, com a explicação.
+  própria plataforma). `LegalmailApiClient` levanta
+  `RecursoNaoSuportadoPelaApiError` nesse método, com a explicação.
+- **Audiências não têm endpoint próprio, mas dá para contornar**: como a
+  API não expõe uma listagem de audiências, `legalmail_prazos.classificacao`
+  identifica intimações de audiência dentro da própria Entrada (pelo campo
+  `tipo`, estruturado) e extrai data/horário do teor quando possível
+  (`rotina.triar_entrada` + `rotina.escrever_audiencias_da_entrada`).
+  Extração de texto livre é best-effort — quando não é confiável, o campo
+  fica em branco na planilha e a limitação é reportada.
 
 A API é **paga por crédito do workspace** — `GET /api/v1/notices` custa
 R$ 0,05 por requisição (2xx), independente de quantas intimações vierem na
@@ -63,6 +69,7 @@ src/legalmail_prazos/
   legalmail_client.py     contrato de acesso ao Legalmail (Protocol)
   api_v1.py               cliente HTTP fino para a API pública real do Legalmail
   legalmail_api_client.py implementação do Protocol sobre a API real (api_v1)
+  classificacao.py        classifica intimações (audiência/perícia/prazo) e extrai data/horário do teor
   rotina.py               orquestração das partes 1 (casos novos) e 2 (audiências) e relatório final
   cli.py                  utilitários de linha de comando para conferência manual
 ```
@@ -77,9 +84,9 @@ teste faz uma chamada de rede real nem consome créditos da API).
   ato exato, quantos dias tem o prazo) continua sendo uma decisão humana ou
   de um agente com acesso ao texto da intimação; o código apenas calcula as
   datas a partir dos parâmetros já decididos (`legalmail_prazos.prazos`).
-- Criar a tarefa (Tipo/Descrição/Prazo) e tudo relacionado a audiências,
-  por não existirem na API — ver seção acima. Mesmo sem "tarefa", a rotina
-  encaminha ao responsável de verdade via `POST /api/v1/lawsuit/assign`
+- Criar a tarefa (Tipo/Descrição/Prazo), por não existir endpoint na API —
+  ver seção acima. Mesmo sem "tarefa", a rotina encaminha ao responsável de
+  verdade via `POST /api/v1/lawsuit/assign`
   (`rotina.processar_parte1` chama isso automaticamente, resolvendo o nome
   do advogado para o id de usuário do Legalmail).
 - Feriados estaduais/municipais específicos de cada tribunal/comarca, que

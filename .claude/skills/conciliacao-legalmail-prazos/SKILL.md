@@ -44,7 +44,10 @@ Para cada item da Entrada:
    Colunas PRAZO 1 e PRAZO 2 ficam em branco para preenchimento manual.
 4. Se houver perícia designada, adicionar entrada na aba PERÍCIA
    (`adicionar_linha_pericia`) — vale tanto para casos novos quanto
-   recorrentes.
+   recorrentes. `rotina.sugerir_pericia(item)` detecta a menção a perícia
+   no teor e tenta extrair data/horário automaticamente (retorna `None`
+   quando o teor não menciona perícia); campos não extraídos com confiança
+   ficam em branco na planilha, nunca inventados.
 5. Antes de criar a tarefa no Legalmail, abrir o histórico do processo e
    tentar reaproveitar um Tipo já usado (`escolher_tipo_tarefa`). Nunca
    criar um Tipo novo sem necessidade real; se não houver correspondência
@@ -74,16 +77,28 @@ posterior reabrindo o arquivo do disco (`conferir_celula`).
 
 ## Parte 2 — Audiências futuras
 
-1. Listar audiências com data/hora maior que o dia anterior à execução.
-2. Comparar o processo normalizado com a coluna B da aba AUDIÊNCIA
-   (`processos_na_aba_audiencia`).
-3. Adicionar linha nova para cada audiência ainda não cadastrada
-   (`adicionar_linha_audiencia`), com cliente em maiúsculas, evento, área
-   (TRABALHISTA para PJe/TRT, CÍVEL para eProc/TJSC), data e horário.
-   LINK, CONTATO DO CLIENTE, CIENTE, AGENDADO(A), CONFIRMAÇÃO,
-   TESTEMUNHAS e OBSERVAÇÕES ficam em branco; AGENDADO(A) nunca é marcado
-   automaticamente.
-4. Audiências canceladas também são registradas, para manter histórico.
+A API do Legalmail não tem endpoint de audiências (ver seção "Camada de
+acesso ao Legalmail" abaixo). Por isso a única forma de identificá-las via
+API é classificar as próprias intimações da Entrada:
+
+1. Separar a Entrada com `rotina.triar_entrada(itens)`, que usa
+   `classificacao.eh_intimacao_de_audiencia` (prioriza o campo `tipo`
+   estruturado da intimação; só cai para busca no `teor` quando `tipo` não
+   vier preenchido).
+2. Para cada intimação de audiência, `rotina.escrever_audiencias_da_entrada`
+   compara o processo normalizado com a coluna B da aba AUDIÊNCIA
+   (`processos_na_aba_audiencia`) para não duplicar, e extrai data/horário
+   do teor best-effort (`classificacao.extrair_data_e_horario`) — quando a
+   extração não é confiável, a célula fica em branco e a limitação é
+   sinalizada no relatório, nunca uma data inventada.
+3. Adiciona linha nova (`adicionar_linha_audiencia`), com cliente em
+   maiúsculas, evento sugerido por palavra-chave (instrução/conciliação),
+   área (TRABALHISTA para TRT/TST, CÍVEL para os demais). LINK, CONTATO DO
+   CLIENTE, CIENTE, AGENDADO(A), CONFIRMAÇÃO, TESTEMUNHAS e OBSERVAÇÕES
+   ficam em branco; AGENDADO(A) nunca é marcado automaticamente.
+4. Se o próprio Legalmail vier a expor um endpoint de audiências no
+   futuro, `rotina.processar_parte2` já está pronto para consumi-lo
+   diretamente (ver `legalmail_client.AudienciaLegalmail`).
 
 ## Relatório final
 

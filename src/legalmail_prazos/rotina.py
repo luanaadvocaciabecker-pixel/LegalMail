@@ -19,6 +19,13 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from .classificacao import (
+    contem_designacao_pericia,
+    eh_intimacao_de_audiencia,
+    extrair_data_e_horario,
+    sugerir_area_por_tribunal,
+    sugerir_evento_audiencia,
+)
 from .legalmail_client import (
     AudienciaLegalmail,
     ItemEntrada,
@@ -75,6 +82,47 @@ def escolher_tipo_tarefa(
         if score > 0 and (melhor is None or score > melhor[0]):
             melhor = (score, item.tipo)
     return melhor[1] if melhor else None
+
+
+def triar_entrada(itens: list[ItemEntrada]) -> tuple[list[ItemEntrada], list[ItemEntrada]]:
+    """Separa a Entrada em (candidatas a audiência, demais itens) — seção 9.
+
+    A API não tem endpoint de audiências; a única forma de identificá-las é
+    classificar as próprias intimações da Entrada
+    (``classificacao.eh_intimacao_de_audiencia``). Os "demais itens" seguem
+    o fluxo normal da Parte 1 (:func:`processar_parte1`).
+    """
+
+    audiencias: list[ItemEntrada] = []
+    demais: list[ItemEntrada] = []
+    for item in itens:
+        if eh_intimacao_de_audiencia(tipo=item.tipo, teor=item.conteudo_intimacao):
+            audiencias.append(item)
+        else:
+            demais.append(item)
+    return audiencias, demais
+
+
+def sugerir_pericia(item: ItemEntrada) -> NovaPericia | None:
+    """Seção 4, item 4: sugere uma entrada de PERÍCIA quando o teor da
+    intimação menciona uma designação (vale mesmo para casos recorrentes).
+
+    Retorna ``None`` quando o teor não menciona perícia. Data e horário só
+    vêm preenchidos quando extraídos do teor com uma correspondência clara
+    (ver :func:`legalmail_prazos.classificacao.extrair_data_e_horario`);
+    caso contrário ficam em branco na planilha, para preenchimento manual.
+    """
+
+    if not contem_designacao_pericia(item.conteudo_intimacao):
+        return None
+    extracao = extrair_data_e_horario(item.conteudo_intimacao)
+    return NovaPericia(
+        cliente=item.cliente_x_parte,
+        numero_processo=item.numero_processo,
+        pericia="A CONFIRMAR",
+        data=extracao.data,
+        horario=extracao.horario,
+    )
 
 
 @dataclass
@@ -349,6 +397,61 @@ def processar_parte2(
         )
         ja_cadastradas.add(numero_normalizado)
         relatorio.audiencias_adicionadas += 1
+
+    salvar_com_seguranca(wb, caminho_planilha)
+    return relatorio
+
+
+def escrever_audiencias_da_entrada(
+    *,
+    itens_audiencia: list[ItemEntrada],
+    caminho_planilha: Path,
+    pasta_outputs: Path,
+    relatorio: RelatorioConciliacao | None = None,
+) -> RelatorioConciliacao:
+    """Escreve na aba AUDIÊNCIA as intimações da Entrada já classificadas como
+    audiência por :func:`triar_entrada` (seção 9).
+
+    Diferente de :func:`processar_parte2` (que espera audiências já
+    conhecidas, com data e horário certos, vindas de ``listar_audiencias``),
+    esta função extrai data e horário do teor da própria intimação —
+    best-effort — e deixa em branco quando a extração não é confiável,
+    sinalizando isso no relatório em vez de arriscar uma data errada.
+    """
+
+    relatorio = relatorio or RelatorioConciliacao()
+
+    fazer_backup(caminho_planilha, pasta_outputs)
+    wb = load_workbook(caminho_planilha, data_only=False)
+    ws_audiencia = wb[ABA_AUDIENCIA]
+
+    ja_cadastradas = processos_na_aba_audiencia(ws_audiencia)
+
+    for item in itens_audiencia:
+        numero_normalizado = normalizar_processo(item.numero_processo)
+        if numero_normalizado in ja_cadastradas:
+            continue
+
+        extracao = extrair_data_e_horario(item.conteudo_intimacao)
+        adicionar_linha_audiencia(
+            wb,
+            NovaAudiencia(
+                cliente=item.cliente_x_parte,
+                numero_processo=item.numero_processo,
+                evento=sugerir_evento_audiencia(item.conteudo_intimacao),
+                area=sugerir_area_por_tribunal(item.tribunal),
+                data=extracao.data,
+                horario=extracao.horario,
+            ),
+        )
+        ja_cadastradas.add(numero_normalizado)
+        relatorio.audiencias_adicionadas += 1
+        if extracao.confirmar_manualmente:
+            relatorio.limitacoes.append(
+                f"a data/horário da audiência de {item.cliente_x_parte} processo "
+                f"{item.numero_processo} não pôde ser extraído do teor com confiança "
+                "e ficou em branco, confirmar manualmente"
+            )
 
     salvar_com_seguranca(wb, caminho_planilha)
     return relatorio

@@ -84,6 +84,7 @@ def _item_entrada_a_partir_de_notice(notice: dict) -> ItemEntrada | None:
         data_disponibilizacao=data_disponibilizacao,
         segredo_justica=False,  # a API não expõe esse dado.
         conteudo_acessivel=teor != "",
+        tipo=notice.get("tipo"),
     )
 
 

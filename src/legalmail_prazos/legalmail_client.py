@@ -38,6 +38,11 @@ class ItemEntrada:
     conteudo_acessivel: bool = True
     """False quando o teor está genuinamente bloqueado (seção 7) — nesse
     caso a rotina deve parar e reportar a limitação, nunca inventar dados."""
+    tipo: str | None = None
+    """Tipo da intimação como registrado na captura (ex. "Intimação",
+    "Audiência"), quando a fonte expuser esse dado estruturado. Usado por
+    ``legalmail_prazos.classificacao`` para identificar audiências sem
+    depender de adivinhação sobre texto livre."""
 
 
 @dataclass(frozen=True)

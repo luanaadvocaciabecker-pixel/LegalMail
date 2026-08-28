@@ -167,10 +167,13 @@ class NovaPericia:
     cliente: str
     numero_processo: str
     pericia: str
-    perito: str
-    data: date
-    horario: str
+    perito: str | None = None
+    data: date | None = None
+    horario: str | None = None
     local: str | None = None
+    """``perito``, ``data``, ``horario`` e ``local`` ficam ``None`` (célula em
+    branco) quando não puderem ser extraídos com confiança do teor da
+    intimação — preenchimento manual posterior, nunca um valor inventado."""
 
 
 def adicionar_linha_pericia(wb: Workbook, item: NovaPericia) -> int:
@@ -181,9 +184,12 @@ def adicionar_linha_pericia(wb: Workbook, item: NovaPericia) -> int:
     ws.cell(row=linha, column=1, value=item.cliente)
     ws.cell(row=linha, column=2, value=item.numero_processo)
     ws.cell(row=linha, column=3, value=item.pericia)
-    ws.cell(row=linha, column=4, value=item.perito)
-    ws.cell(row=linha, column=5, value=item.data)
-    ws.cell(row=linha, column=6, value=item.horario)
+    if item.perito:
+        ws.cell(row=linha, column=4, value=item.perito)
+    if item.data:
+        ws.cell(row=linha, column=5, value=item.data)
+    if item.horario:
+        ws.cell(row=linha, column=6, value=item.horario)
     if item.local:
         ws.cell(row=linha, column=7, value=item.local)
     return linha
@@ -195,8 +201,10 @@ class NovaAudiencia:
     numero_processo: str
     evento: str
     area: str
-    data: date
-    horario: str
+    data: date | None = None
+    horario: str | None = None
+    """``data`` e ``horario`` ficam ``None`` (célula em branco) quando não
+    puderem ser extraídos com confiança do teor da intimação."""
 
 
 def processos_na_aba_audiencia(ws: Worksheet) -> set[str]:
@@ -221,8 +229,10 @@ def adicionar_linha_audiencia(wb: Workbook, item: NovaAudiencia) -> int:
     ws.cell(row=linha, column=2, value=item.numero_processo)
     ws.cell(row=linha, column=3, value=item.evento)
     ws.cell(row=linha, column=4, value=item.area)
-    ws.cell(row=linha, column=5, value=item.data)
-    ws.cell(row=linha, column=6, value=item.horario)
+    if item.data:
+        ws.cell(row=linha, column=5, value=item.data)
+    if item.horario:
+        ws.cell(row=linha, column=6, value=item.horario)
     # LINK, CONTATO DO CLIENTE, CIENTE, AGENDADO(A), CONFIRMAÇÃO,
     # TESTEMUNHAS, OBSERVAÇÕES ficam em branco (colunas 7 a 13).
     return linha

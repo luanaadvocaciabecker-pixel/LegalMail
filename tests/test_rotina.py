@@ -17,8 +17,11 @@ from legalmail_prazos.prazos import Prazo, RegimeContagem, calcular_prazo
 from legalmail_prazos.rotina import (
     DecisaoItemEntrada,
     escolher_tipo_tarefa,
+    escrever_audiencias_da_entrada,
     processar_parte1,
     processar_parte2,
+    sugerir_pericia,
+    triar_entrada,
 )
 
 
@@ -347,4 +350,112 @@ def test_processar_parte2_nao_duplica_audiencia_existente(planilha_sintetica: Pa
         caminho_planilha=planilha_sintetica,
         pasta_outputs=tmp_path / "outputs",
     )
+    assert relatorio2.audiencias_adicionadas == 0
+
+
+def _item_entrada(**overrides) -> ItemEntrada:
+    base = dict(
+        id_legalmail="item-x",
+        numero_processo="0099000-00.2026.5.12.0030",
+        tribunal="TRT12 1G",
+        cliente_x_parte="CLIENTE TESTE TRIAGEM",
+        conteudo_intimacao="Manifeste-se em 15 dias sobre a contestação.",
+        data_disponibilizacao=date(2026, 8, 24),
+    )
+    base.update(overrides)
+    return ItemEntrada(**base)
+
+
+def test_triar_entrada_separa_audiencia_dos_demais():
+    item_audiencia = _item_entrada(id_legalmail="a1", tipo="Audiência")
+    item_prazo = _item_entrada(id_legalmail="a2", tipo="Intimação")
+
+    audiencias, demais = triar_entrada([item_audiencia, item_prazo])
+
+    assert audiencias == [item_audiencia]
+    assert demais == [item_prazo]
+
+
+def test_sugerir_pericia_retorna_none_sem_mencao():
+    item = _item_entrada(conteudo_intimacao="Manifeste-se em 15 dias.")
+    assert sugerir_pericia(item) is None
+
+
+def test_sugerir_pericia_extrai_data_quando_disponivel():
+    item = _item_entrada(
+        conteudo_intimacao="Nomeio perito e designo perícia para o dia 10/11/2026 às 09:00."
+    )
+    pericia = sugerir_pericia(item)
+    assert pericia is not None
+    assert pericia.numero_processo == item.numero_processo
+    assert pericia.data == date(2026, 11, 10)
+    assert pericia.horario == "09:00"
+
+
+def test_escrever_audiencias_da_entrada_extrai_e_grava(planilha_sintetica: Path, tmp_path: Path):
+    item = _item_entrada(
+        tipo="Audiência",
+        conteudo_intimacao="Designo audiência de instrução para o dia 06/05/2026 às 14:30.",
+    )
+
+    relatorio = escrever_audiencias_da_entrada(
+        itens_audiencia=[item],
+        caminho_planilha=planilha_sintetica,
+        pasta_outputs=tmp_path / "outputs",
+    )
+
+    assert relatorio.audiencias_adicionadas == 1
+    assert not relatorio.limitacoes
+
+    wb = load_workbook(planilha_sintetica)
+    ws = wb[ABA_AUDIENCIA]
+    linha = ws.max_row
+    assert ws.cell(row=linha, column=1).value == "CLIENTE TESTE TRIAGEM"
+    assert ws.cell(row=linha, column=3).value == "AUDIÊNCIA DE INSTRUÇÃO"
+    assert ws.cell(row=linha, column=4).value == "TRABALHISTA"
+    assert ws.cell(row=linha, column=6).value == "14:30"
+
+
+def test_escrever_audiencias_da_entrada_sinaliza_quando_nao_extrai_data(
+    planilha_sintetica: Path, tmp_path: Path
+):
+    item = _item_entrada(
+        tipo="Audiência",
+        numero_processo="0099001-00.2026.5.12.0030",
+        conteudo_intimacao="Audiência designada, aguardar publicação da pauta.",
+    )
+
+    relatorio = escrever_audiencias_da_entrada(
+        itens_audiencia=[item],
+        caminho_planilha=planilha_sintetica,
+        pasta_outputs=tmp_path / "outputs",
+    )
+
+    assert relatorio.audiencias_adicionadas == 1
+    assert relatorio.limitacoes  # sinalizado para confirmação manual
+
+    wb = load_workbook(planilha_sintetica)
+    ws = wb[ABA_AUDIENCIA]
+    linha = ws.max_row
+    assert ws.cell(row=linha, column=5).value is None  # DATA em branco, não inventada
+
+
+def test_escrever_audiencias_da_entrada_nao_duplica(planilha_sintetica: Path, tmp_path: Path):
+    item = _item_entrada(
+        tipo="Audiência",
+        numero_processo="0099002-00.2026.5.12.0030",
+        conteudo_intimacao="Audiência de conciliação designada para 12/12/2026 às 10:00.",
+    )
+
+    escrever_audiencias_da_entrada(
+        itens_audiencia=[item],
+        caminho_planilha=planilha_sintetica,
+        pasta_outputs=tmp_path / "outputs",
+    )
+    relatorio2 = escrever_audiencias_da_entrada(
+        itens_audiencia=[item],
+        caminho_planilha=planilha_sintetica,
+        pasta_outputs=tmp_path / "outputs",
+    )
+
     assert relatorio2.audiencias_adicionadas == 0
