@@ -21,8 +21,12 @@ A partir da especificação OpenAPI real fornecida pelo escritório:
   intimação, `prazo_status` e `tipo_prazo`), consultar o processo incluindo
   seu prazo ativo (`GET /api/v1/lawsuit/detail`, campo `data_prazo`),
   arquivar o processo da Entrada para o Acervo (`POST /api/v1/lawsuit/archive`),
-  encarregar o advogado responsável (`POST /api/v1/lawsuit/assign`) e listar
-  usuários do workspace para resolver nome -> id (`GET /api/v1/users`).
+  encarregar o advogado responsável (`POST /api/v1/lawsuit/assign`), listar
+  usuários do workspace para resolver nome -> id (`GET /api/v1/users`), e
+  listar os autos do processo / obter a URL de um documento específico
+  (`GET /api/v1/lawsuit/case-files` e `GET /api/v1/lawsuit/docket-entry/url`)
+  para montar o contexto de um esboço de manifestação sem depender do merge
+  completo dos autos (limitado a 1x a cada 3 dias pela própria API).
 - **Não coberto pela API** (continua manual, na interface do Legalmail):
   criar uma tarefa com Tipo/Descrição/Prazo (não existe endpoint para isso,
   nem para definir `data_prazo` diretamente — é somente leitura, gerido pela

@@ -211,6 +211,16 @@ class LegalmailApiV1:
 
         return self._get("/api/v1/users")
 
+    def lawsuit_case_files(self, idprocesso: int) -> list[dict[str, Any]]:
+        """``GET /api/v1/lawsuit/case-files`` — autos do processo (movimentações)."""
+
+        return self._get("/api/v1/lawsuit/case-files", idprocesso=idprocesso)
+
+    def docket_entry_url(self, idmovimentacoes: int) -> dict[str, Any]:
+        """``GET /api/v1/lawsuit/docket-entry/url`` — URL S3 pré-assinada do documento."""
+
+        return self._get("/api/v1/lawsuit/docket-entry/url", idmovimentacoes=idmovimentacoes)
+
     def list_lawsuits_all(
         self,
         *,

@@ -87,6 +87,30 @@ def test_lawsuit_assign_envia_body_correto():
     assert params["json"] == {"idprocessos": 10, "idusuarios": 42}
 
 
+def test_lawsuit_case_files_envia_idprocesso():
+    sessao = FakeSession(respostas=[FakeResponse(200, [{"idmovimentacoes": 1}])])
+    api = LegalmailApiV1("chave-teste", session=sessao)
+
+    resultado = api.lawsuit_case_files(456)
+
+    assert resultado == [{"idmovimentacoes": 1}]
+    _, _, params = sessao.chamadas[0]
+    assert params["idprocesso"] == 456
+
+
+def test_docket_entry_url_envia_idmovimentacoes():
+    sessao = FakeSession(
+        respostas=[FakeResponse(200, {"status": "success", "s3_url": "https://exemplo/doc.pdf"})]
+    )
+    api = LegalmailApiV1("chave-teste", session=sessao)
+
+    resultado = api.docket_entry_url(123)
+
+    assert resultado["s3_url"] == "https://exemplo/doc.pdf"
+    _, _, params = sessao.chamadas[0]
+    assert params["idmovimentacoes"] == 123
+
+
 def test_lawsuit_detail_exige_exatamente_um_parametro():
     sessao = FakeSession(respostas=[])
     api = LegalmailApiV1("chave-teste", session=sessao)

@@ -11,8 +11,12 @@ cobre bem menos do que a automação de navegador original fazia na tela:
   prazo atualmente ativo do processo, gerido pela própria plataforma),
   arquivar o processo da Entrada para o Acervo
   (``POST /api/v1/lawsuit/archive``), encarregar o advogado responsável
-  (``POST /api/v1/lawsuit/assign``), e listar usuários do workspace
-  (``GET /api/v1/users``, para resolver nome do advogado -> ``idusuarios``).
+  (``POST /api/v1/lawsuit/assign``), listar usuários do workspace
+  (``GET /api/v1/users``, para resolver nome do advogado -> ``idusuarios``), e
+  montar contexto para um esboço de manifestação (``listar_autos_processo``
+  + ``obter_url_documento``, sobre ``GET /api/v1/lawsuit/case-files`` e
+  ``GET /api/v1/lawsuit/docket-entry/url`` — mais barato e rápido que baixar
+  o merge completo dos autos, que só pode ser pedido 1x a cada 3 dias).
 - **Não suportado pela API** (continua manual, na interface do Legalmail):
   criar uma "tarefa" com Tipo/Descrição/Prazo — não existe endpoint para
   isso, nem para definir ``data_prazo`` diretamente; e não há nenhum
@@ -36,6 +40,7 @@ from .api_v1 import LegalmailApiV1
 from .legalmail_client import (
     AudienciaLegalmail,
     ItemEntrada,
+    MovimentacaoProcesso,
     NovaTarefaLegalmail,
     TipoTarefaHistorico,
 )
@@ -158,6 +163,35 @@ class LegalmailApiClient:
             if usuario.get("nome", "").strip().lower() == nome.strip().lower():
                 return usuario.get("idusuarios")
         return None
+
+    def listar_autos_processo(self, id_legalmail_processo: str) -> list[MovimentacaoProcesso]:
+        """``GET /api/v1/lawsuit/case-files`` — movimentações classificadas como
+        autos do processo, para montar contexto de um esboço de manifestação
+        sem precisar do merge completo dos autos (limitado a 1x a cada 3 dias)."""
+
+        itens = self._api.lawsuit_case_files(int(id_legalmail_processo))
+        movimentacoes = []
+        for item in itens:
+            data_str = item.get("data_movimentacao")
+            data_movimentacao = (
+                datetime.strptime(data_str, "%Y-%m-%d").date() if data_str else date.today()
+            )
+            movimentacoes.append(
+                MovimentacaoProcesso(
+                    id_movimentacao=item["idmovimentacoes"],
+                    titulo=item.get("titulo") or "",
+                    data_movimentacao=data_movimentacao,
+                    tipo=item.get("tipo") or "",
+                )
+            )
+        return movimentacoes
+
+    def obter_url_documento(self, id_movimentacao: int) -> str | None:
+        """``GET /api/v1/lawsuit/docket-entry/url`` — URL pré-assinada (S3) do
+        documento de uma movimentação específica dos autos."""
+
+        resposta = self._api.docket_entry_url(id_movimentacao)
+        return resposta.get("s3_url")
 
     def listar_audiencias(self, *, a_partir_de: date) -> list[AudienciaLegalmail]:
         raise RecursoNaoSuportadoPelaApiError(

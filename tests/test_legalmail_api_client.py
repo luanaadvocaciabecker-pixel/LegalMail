@@ -16,6 +16,8 @@ class FakeLegalmailApiV1:
 
     paginas_notices: list[dict] = field(default_factory=list)
     usuarios: list[dict] = field(default_factory=list)
+    autos_por_processo: dict[int, list[dict]] = field(default_factory=dict)
+    urls_por_movimentacao: dict[int, dict] = field(default_factory=dict)
     chamadas_archive: list[int] = field(default_factory=list)
     chamadas_assign: list[tuple[int, int]] = field(default_factory=list)
 
@@ -32,6 +34,12 @@ class FakeLegalmailApiV1:
     def lawsuit_assign(self, idprocessos: int, idusuarios: int):
         self.chamadas_assign.append((idprocessos, idusuarios))
         return {"status": "success"}
+
+    def lawsuit_case_files(self, idprocesso: int):
+        return self.autos_por_processo.get(idprocesso, [])
+
+    def docket_entry_url(self, idmovimentacoes: int):
+        return self.urls_por_movimentacao.get(idmovimentacoes, {"status": "success", "s3_url": None})
 
 
 def _notice(**overrides):
@@ -154,3 +162,47 @@ def test_cliente_a_partir_do_ambiente_exige_variavel(monkeypatch):
     monkeypatch.delenv("LEGALMAIL_API_KEY", raising=False)
     with pytest.raises(RuntimeError):
         cliente_a_partir_do_ambiente()
+
+
+def test_listar_autos_processo_converte_movimentacoes():
+    api = FakeLegalmailApiV1(
+        autos_por_processo={
+            456: [
+                {
+                    "idmovimentacoes": 123,
+                    "fk_processo": 456,
+                    "titulo": "Petição inicial",
+                    "data_movimentacao": "2024-05-01",
+                    "tipo": "principal",
+                }
+            ]
+        }
+    )
+    cliente = LegalmailApiClient(api)
+
+    autos = cliente.listar_autos_processo("456")
+
+    assert len(autos) == 1
+    assert autos[0].id_movimentacao == 123
+    assert autos[0].titulo == "Petição inicial"
+    assert autos[0].data_movimentacao == date(2024, 5, 1)
+    assert autos[0].tipo == "principal"
+
+
+def test_listar_autos_processo_sem_autos():
+    cliente = LegalmailApiClient(FakeLegalmailApiV1())
+    assert cliente.listar_autos_processo("999") == []
+
+
+def test_obter_url_documento():
+    api = FakeLegalmailApiV1(
+        urls_por_movimentacao={123: {"status": "success", "s3_url": "https://exemplo/doc.pdf"}}
+    )
+    cliente = LegalmailApiClient(api)
+
+    assert cliente.obter_url_documento(123) == "https://exemplo/doc.pdf"
+
+
+def test_obter_url_documento_ausente_retorna_none():
+    cliente = LegalmailApiClient(FakeLegalmailApiV1())
+    assert cliente.obter_url_documento(999) is None

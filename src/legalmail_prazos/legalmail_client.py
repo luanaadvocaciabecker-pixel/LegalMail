@@ -46,6 +46,22 @@ class ItemEntrada:
 
 
 @dataclass(frozen=True)
+class MovimentacaoProcesso:
+    """Um item dos autos do processo (``GET /api/v1/lawsuit/case-files``).
+
+    Usado para montar o contexto de um esboço de manifestação: dá para
+    listar as peças já protocoladas no processo e buscar o documento de
+    uma movimentação específica (``LegalmailApiClient.obter_url_documento``)
+    sem precisar baixar o merge completo dos autos (que é limitado a uma
+    vez a cada 3 dias pela API)."""
+
+    id_movimentacao: int
+    titulo: str
+    data_movimentacao: date
+    tipo: str
+
+
+@dataclass(frozen=True)
 class TipoTarefaHistorico:
     """Um tipo de tarefa já usado anteriormente no histórico do processo."""
 
