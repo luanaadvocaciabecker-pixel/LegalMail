@@ -140,6 +140,25 @@ def test_localizar_usuario_por_nome_case_insensitive():
     assert cliente.localizar_usuario_por_nome("Outra Pessoa") is None
 
 
+def test_localizar_usuario_por_nome_cai_para_primeiro_nome():
+    api = FakeLegalmailApiV1(usuarios=[{"idusuarios": 42, "nome": "ALANA PAIS LEMOS"}])
+    cliente = LegalmailApiClient(api)
+
+    assert cliente.localizar_usuario_por_nome("Alana") == 42
+
+
+def test_localizar_usuario_por_nome_ambiguo_por_primeiro_nome_retorna_none():
+    api = FakeLegalmailApiV1(
+        usuarios=[
+            {"idusuarios": 1, "nome": "ALANA PAIS LEMOS"},
+            {"idusuarios": 2, "nome": "ALANA SOUZA"},
+        ]
+    )
+    cliente = LegalmailApiClient(api)
+
+    assert cliente.localizar_usuario_por_nome("Alana") is None
+
+
 def test_historico_tarefas_nao_suportado():
     cliente = LegalmailApiClient(FakeLegalmailApiV1())
     with pytest.raises(RecursoNaoSuportadoPelaApiError):

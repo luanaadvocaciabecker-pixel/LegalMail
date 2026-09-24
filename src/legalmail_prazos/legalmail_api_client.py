@@ -58,6 +58,11 @@ def _partes_para_cliente_x_parte(partes: str | None) -> str:
     return partes or ""
 
 
+def _primeiro_nome(nome_completo: str) -> str:
+    partes = nome_completo.strip().split()
+    return partes[0] if partes else ""
+
+
 def _item_entrada_a_partir_de_notice(notice: dict) -> ItemEntrada | None:
     """Converte um item de ``GET /api/v1/notices`` em :class:`ItemEntrada`.
 
@@ -157,11 +162,33 @@ class LegalmailApiClient:
         self._api.lawsuit_assign(int(id_legalmail_processo), id_usuario)
 
     def localizar_usuario_por_nome(self, nome: str) -> int | None:
-        """Busca ``idusuarios`` pelo nome exato (case-insensitive) em ``GET /api/v1/users``."""
+        """Resolve ``idusuarios`` a partir de um nome, com fallback por primeiro nome.
 
-        for usuario in self._api.list_users():
-            if usuario.get("nome", "").strip().lower() == nome.strip().lower():
+        Tenta primeiro um match exato (case-insensitive) do nome completo em
+        ``GET /api/v1/users``. Quando não encontra — comum quando o nome
+        vem abreviado, como a coluna ADVOGADA ATUAL da aba ATIVOS ATUAL da
+        planilha (ex. "Alana" para "ALANA PAIS LEMOS") — cai para comparar
+        contra o primeiro nome de cada usuário. Só retorna um resultado
+        nesse fallback quando exatamente um usuário bate; havendo mais de
+        um (dois advogados com o mesmo primeiro nome) ou nenhum, retorna
+        ``None`` em vez de arriscar encarregar a pessoa errada (seção 7,
+        nunca inventar dados).
+        """
+
+        usuarios = self._api.list_users()
+        alvo = nome.strip().lower()
+
+        for usuario in usuarios:
+            if usuario.get("nome", "").strip().lower() == alvo:
                 return usuario.get("idusuarios")
+
+        candidatos = [
+            usuario
+            for usuario in usuarios
+            if _primeiro_nome(usuario.get("nome", "")).lower() == alvo
+        ]
+        if len(candidatos) == 1:
+            return candidatos[0].get("idusuarios")
         return None
 
     def listar_autos_processo(self, id_legalmail_processo: str) -> list[MovimentacaoProcesso]:
