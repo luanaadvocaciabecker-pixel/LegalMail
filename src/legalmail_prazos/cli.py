@@ -10,11 +10,13 @@ requer a variável de ambiente ``LEGALMAIL_API_KEY`` (ver ``.env.example``).
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import date
 from pathlib import Path
 
 from .holidays import Calendario
+from .legalmail_api_client import cliente_a_partir_do_ambiente
 from .planilha import (
     ABA_PRAZOS,
     carregar_processos_conhecidos,
@@ -23,6 +25,7 @@ from .planilha import (
     processos_na_aba_prazos,
 )
 from .prazos import RegimeContagem, calcular_prazo
+from .rotina import encarregar_e_zerar_entrada
 from .tribunais import calendario_para_tribunal
 from openpyxl import load_workbook
 
@@ -74,6 +77,22 @@ def _cmd_calcular_prazo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_encarregar_entrada(args: argparse.Namespace) -> int:
+    mapa = None
+    if args.mapa_advogados:
+        with open(args.mapa_advogados, encoding="utf-8") as f:
+            mapa = json.load(f)
+
+    client = cliente_a_partir_do_ambiente()
+    relatorio = encarregar_e_zerar_entrada(
+        client=client,
+        caminho_planilha_ativos_atual=Path(args.planilha),
+        mapa_abreviacao_para_nome_completo=mapa,
+    )
+    print(relatorio.texto())
+    return 0
+
+
 def construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="conciliacao-legalmail-prazos")
     subparsers = parser.add_subparsers(dest="comando", required=True)
@@ -116,6 +135,27 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     p_prazo.add_argument("--sem-margem-seguranca", action="store_true")
     p_prazo.set_defaults(func=_cmd_calcular_prazo)
+
+    p_encarregar = subparsers.add_parser(
+        "encarregar-entrada",
+        help=(
+            "Encarrega o advogado responsável de cada item da Entrada e arquiva tudo "
+            "para o Acervo, sem tocar na planilha (usa LEGALMAIL_API_KEY)."
+        ),
+    )
+    p_encarregar.add_argument(
+        "--planilha",
+        required=True,
+        help="Caminho da planilha com a aba ATIVOS ATUAL (aberta só para leitura).",
+    )
+    p_encarregar.add_argument(
+        "--mapa-advogados",
+        help=(
+            "Caminho de um JSON {abreviação: nome completo}, para os casos em que o "
+            "fallback por primeiro nome não resolver sozinho."
+        ),
+    )
+    p_encarregar.set_defaults(func=_cmd_encarregar_entrada)
 
     return parser
 

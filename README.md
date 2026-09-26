@@ -78,8 +78,23 @@ src/legalmail_prazos/
   legalmail_api_client.py implementação do Protocol sobre a API real (api_v1)
   classificacao.py        classifica intimações (audiência/perícia/prazo) e extrai data/horário do teor
   rotina.py               orquestração das partes 1 (casos novos) e 2 (audiências) e relatório final
-  cli.py                  utilitários de linha de comando para conferência manual
+  cli.py                  utilitários de linha de comando (conferência manual e execução real)
 ```
+
+## Comandos de CLI
+
+```
+conciliacao-legalmail-prazos verificar-processo <numero> --prazos-nums-json <path> [--planilha <path>]
+conciliacao-legalmail-prazos calcular-prazo <data_disponibilizacao> <quantidade_dias> --regime <regime> [--tribunal <tribunal>] [--recesso-forense] [--sem-margem-seguranca]
+conciliacao-legalmail-prazos encarregar-entrada --planilha <path> [--mapa-advogados <path>]
+```
+
+`encarregar-entrada` é o único comando que fala com a API real (usa
+`LEGALMAIL_API_KEY`): para cada item da Entrada, encarrega o advogado
+responsável (resolvido pela aba ATIVOS ATUAL da planilha informada, aberta
+só para leitura) e arquiva para o Acervo — sem gravar nada na planilha.
+`--mapa-advogados` aponta para um JSON `{"abreviação": "nome completo"}`
+para os casos em que o fallback por primeiro nome não bastar sozinho.
 
 Nenhum dado real de cliente do escritório está neste repositório; os testes
 usam apenas planilhas, processos e respostas de API sintéticos (nenhum
