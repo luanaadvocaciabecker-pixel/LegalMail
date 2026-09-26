@@ -455,3 +455,111 @@ def escrever_audiencias_da_entrada(
 
     salvar_com_seguranca(wb, caminho_planilha)
     return relatorio
+
+
+@dataclass
+class RelatorioEncarregamento:
+    """Resultado de :func:`encarregar_e_zerar_entrada`."""
+
+    processos_encarregados: list[str] = field(default_factory=list)
+    processos_arquivados: list[str] = field(default_factory=list)
+    limitacoes: list[str] = field(default_factory=list)
+
+    def texto(self) -> str:
+        """Parágrafos corridos, sem dois-pontos, bullets ou tabelas (seção 10)."""
+
+        partes: list[str] = []
+        if self.processos_encarregados:
+            partes.append(
+                f"Foram encarregados {len(self.processos_encarregados)} processos ao "
+                "advogado responsável correspondente, a saber "
+                + "; ".join(self.processos_encarregados)
+                + "."
+            )
+        else:
+            partes.append("Nenhum processo foi encarregado nesta execução.")
+
+        partes.append(
+            f"A Entrada foi zerada, {len(self.processos_arquivados)} processos "
+            "arquivados para o Acervo."
+        )
+
+        if self.limitacoes:
+            partes.append(
+                "A execução teve as seguintes limitações, "
+                + "; ".join(self.limitacoes)
+                + "."
+            )
+
+        return " ".join(partes)
+
+
+def encarregar_e_zerar_entrada(
+    *,
+    client: LegalmailClient,
+    caminho_planilha_ativos_atual: Path,
+    mapa_abreviacao_para_nome_completo: dict[str, str] | None = None,
+) -> RelatorioEncarregamento:
+    """Encarrega o advogado responsável de cada item da Entrada e arquiva
+    tudo para o Acervo ("zera a caixa de entrada"), sem tocar na planilha.
+
+    Não cria uma "tarefa" no Legalmail — isso não existe na API pública
+    (nenhum endpoint aceita Tipo/Descrição/Prazo, ver
+    ``legalmail_api_client.RecursoNaoSuportadoPelaApiError``). O mais
+    próximo que a API permite é encarregar o responsável no processo
+    (``POST /api/v1/lawsuit/assign``), que é o que esta função faz antes de
+    arquivar. A aba ATIVOS ATUAL da planilha é aberta só para leitura, como
+    referência do advogado responsável — este fluxo nunca grava na
+    planilha (nem PRAZOS nem qualquer outra aba).
+
+    Um processo é arquivado mesmo quando não foi possível encarregar
+    ninguém (advogado não identificado na planilha, ou sem correspondência
+    exata no Legalmail) — a limitação fica registrada no relatório para
+    conferência manual, em vez de deixar o item parado na Entrada.
+    """
+
+    relatorio = RelatorioEncarregamento()
+    wb = load_workbook(caminho_planilha_ativos_atual, data_only=False)
+
+    for item in client.listar_entrada():
+        if not item.conteudo_acessivel:
+            relatorio.limitacoes.append(
+                f"o conteúdo do processo {item.numero_processo} está bloqueado e não "
+                "pôde ser processado"
+            )
+            continue
+
+        advogado = localizar_advogado_por_processo(
+            wb,
+            item.numero_processo,
+            mapa_abreviacao_para_nome_completo=mapa_abreviacao_para_nome_completo,
+        )
+        if advogado is None:
+            relatorio.limitacoes.append(
+                f"não foi possível identificar o advogado responsável pelo processo "
+                f"{item.numero_processo} na aba ATIVOS ATUAL"
+            )
+        else:
+            try:
+                id_usuario = client.localizar_usuario_por_nome(advogado)
+            except NotImplementedError:
+                id_usuario = None
+            if id_usuario is None:
+                relatorio.limitacoes.append(
+                    f"não foi possível localizar o usuário do Legalmail correspondente "
+                    f"a {advogado} para encarregar o processo {item.numero_processo}"
+                )
+            else:
+                try:
+                    client.encarregar_advogado(item.id_legalmail, id_usuario)
+                    relatorio.processos_encarregados.append(item.numero_processo)
+                except NotImplementedError as exc:
+                    relatorio.limitacoes.append(
+                        f"não foi possível encarregar {advogado} pelo processo "
+                        f"{item.numero_processo} ({exc})"
+                    )
+
+        client.arquivar_para_acervo(item.id_legalmail)
+        relatorio.processos_arquivados.append(item.numero_processo)
+
+    return relatorio

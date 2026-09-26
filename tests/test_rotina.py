@@ -16,6 +16,7 @@ from legalmail_prazos.planilha import ABA_AUDIENCIA, ABA_PRAZOS
 from legalmail_prazos.prazos import Prazo, RegimeContagem, calcular_prazo
 from legalmail_prazos.rotina import (
     DecisaoItemEntrada,
+    encarregar_e_zerar_entrada,
     escolher_tipo_tarefa,
     escrever_audiencias_da_entrada,
     processar_parte1,
@@ -29,12 +30,13 @@ from legalmail_prazos.rotina import (
 class FakeLegalmailClient:
     historico_por_processo: dict[str, list[TipoTarefaHistorico]] = field(default_factory=dict)
     usuario_id_por_nome: dict[str, int] = field(default_factory=dict)
+    itens_entrada: list = field(default_factory=list)
     tarefas_criadas: list[NovaTarefaLegalmail] = field(default_factory=list)
     processos_arquivados: list[str] = field(default_factory=list)
     processos_encarregados: list[tuple[str, int]] = field(default_factory=list)
 
-    def listar_entrada(self):  # pragma: no cover - não usado nestes testes
-        return []
+    def listar_entrada(self):
+        return self.itens_entrada
 
     def historico_tarefas_do_processo(self, id_legalmail_processo: str):
         return self.historico_por_processo.get(id_legalmail_processo, [])
@@ -459,3 +461,99 @@ def test_escrever_audiencias_da_entrada_nao_duplica(planilha_sintetica: Path, tm
     )
 
     assert relatorio2.audiencias_adicionadas == 0
+
+
+def test_encarregar_e_zerar_entrada_encarrega_e_arquiva(planilha_sintetica: Path):
+    client = FakeLegalmailClient(
+        usuario_id_por_nome={"Fulana": 7},
+        itens_entrada=[
+            _item_entrada(
+                id_legalmail="item-a1",
+                numero_processo="5000000-00.2025.8.24.0038",  # -> Fulana na planilha sintética
+            )
+        ],
+    )
+
+    relatorio = encarregar_e_zerar_entrada(
+        client=client, caminho_planilha_ativos_atual=planilha_sintetica
+    )
+
+    assert relatorio.processos_encarregados == ["5000000-00.2025.8.24.0038"]
+    assert relatorio.processos_arquivados == ["5000000-00.2025.8.24.0038"]
+    assert not relatorio.limitacoes
+    assert client.processos_encarregados == [("item-a1", 7)]
+    assert client.processos_arquivados == ["item-a1"]
+
+
+def test_encarregar_e_zerar_entrada_arquiva_mesmo_sem_advogado_identificado(
+    planilha_sintetica: Path,
+):
+    client = FakeLegalmailClient(
+        itens_entrada=[
+            _item_entrada(id_legalmail="item-a2", numero_processo="9999999-99.2099.8.24.0038")
+        ]
+    )
+
+    relatorio = encarregar_e_zerar_entrada(
+        client=client, caminho_planilha_ativos_atual=planilha_sintetica
+    )
+
+    assert relatorio.processos_encarregados == []
+    assert relatorio.processos_arquivados == ["9999999-99.2099.8.24.0038"]
+    assert client.processos_arquivados == ["item-a2"]
+    assert any("advogado responsável" in limite for limite in relatorio.limitacoes)
+
+
+def test_encarregar_e_zerar_entrada_arquiva_mesmo_sem_usuario_legalmail(
+    planilha_sintetica: Path,
+):
+    client = FakeLegalmailClient(
+        itens_entrada=[
+            _item_entrada(
+                id_legalmail="item-a3", numero_processo="5000001-11.2026.8.24.0038"
+            )  # -> Beltrana na planilha sintética
+        ]
+    )
+
+    relatorio = encarregar_e_zerar_entrada(
+        client=client, caminho_planilha_ativos_atual=planilha_sintetica
+    )
+
+    assert relatorio.processos_encarregados == []
+    assert relatorio.processos_arquivados == ["5000001-11.2026.8.24.0038"]
+    assert client.processos_encarregados == []
+    assert any("usuário do Legalmail" in limite for limite in relatorio.limitacoes)
+
+
+def test_encarregar_e_zerar_entrada_pula_conteudo_bloqueado(planilha_sintetica: Path):
+    client = FakeLegalmailClient(
+        itens_entrada=[
+            _item_entrada(
+                id_legalmail="item-a4",
+                numero_processo="5000000-00.2025.8.24.0038",
+                conteudo_acessivel=False,
+            )
+        ]
+    )
+
+    relatorio = encarregar_e_zerar_entrada(
+        client=client, caminho_planilha_ativos_atual=planilha_sintetica
+    )
+
+    assert relatorio.processos_arquivados == []
+    assert client.processos_arquivados == []
+    assert relatorio.limitacoes
+
+
+def test_encarregar_e_zerar_entrada_nunca_grava_a_planilha(planilha_sintetica: Path):
+    conteudo_antes = planilha_sintetica.read_bytes()
+    client = FakeLegalmailClient(
+        usuario_id_por_nome={"Fulana": 7},
+        itens_entrada=[
+            _item_entrada(id_legalmail="item-a5", numero_processo="5000000-00.2025.8.24.0038")
+        ],
+    )
+
+    encarregar_e_zerar_entrada(client=client, caminho_planilha_ativos_atual=planilha_sintetica)
+
+    assert planilha_sintetica.read_bytes() == conteudo_antes

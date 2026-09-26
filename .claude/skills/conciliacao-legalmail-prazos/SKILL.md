@@ -114,6 +114,21 @@ quantas audiências/perícias foram adicionadas, quais tipos de tarefa ficaram
 pendentes de confirmação manual, e qualquer limitação que tenha impedido o
 processamento de algum item.
 
+## Variante — só encarregar e zerar a Entrada (sem tocar na planilha)
+
+Quando o pedido é apenas encarregar cada processo da Entrada ao advogado
+responsável (usando a aba ATIVOS ATUAL como referência) e arquivar tudo
+para o Acervo, sem cadastrar nada na aba PRAZOS, use
+`rotina.encarregar_e_zerar_entrada(client, caminho_planilha_ativos_atual, mapa_abreviacao_para_nome_completo=None)`.
+Ela abre a planilha só para leitura (nunca salva nada nela), resolve o
+advogado via `localizar_advogado_por_processo`, encarrega via
+`client.encarregar_advogado` (que na API real chama `POST /lawsuit/assign`)
+e arquiva via `client.arquivar_para_acervo` — mesmo quando não foi possível
+identificar o advogado ou o usuário correspondente no Legalmail, para não
+deixar itens presos na Entrada; a limitação fica registrada no
+`RelatorioEncarregamento` retornado. Não cria uma "tarefa" no Legalmail —
+isso não existe na API pública (ver seção abaixo).
+
 ## Camada de acesso ao Legalmail
 
 O Legalmail tem uma API pública real e paga por crédito
