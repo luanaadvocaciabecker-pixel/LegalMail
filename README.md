@@ -64,6 +64,9 @@ o cliente real a partir dessa variável de ambiente.
   dos calendários forenses por tribunal (TJSC, TRT12).
 - `.claude/skills/conciliacao-legalmail-prazos/SKILL.md`: resumo operacional
   do skill, referenciando o código deste repositório.
+- `n8n/`: workflow do n8n que porta a Parte 1 para rodar agendado (sem
+  depender de uma sessão de chat), com a mesma lógica de prazo/calendário
+  validada contra o Python — ver `n8n/README.md`.
 
 ## Estrutura do código
 

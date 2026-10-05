@@ -1,0 +1,486 @@
+{
+  "name": "Conciliação Legalmail x PRAZOS BECKER",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Conciliação Legalmail x PRAZOS BECKER\n\nPorta para o n8n a lógica já implementada e testada em Python (repositório LegalMail). Cobre a Parte 1 completa: ler a Entrada, classificar, calcular o prazo com o calendário do tribunal, conciliar com a aba PRAZOS (novo vs. recorrente), resolver o advogado responsável, aprovar manualmente e só então encarregar + arquivar.\n\nIMPORTANTE: este workflow não foi testado contra uma instância real de n8n. Importe, resolva os erros de validação node a node, recrie as credenciais e ajuste os IDs/nomes de planilha e canal do Slack antes de ativar. Ver n8n/README.md no repositório.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "note0",
+      "name": "Sticky Note - Visão geral",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-260, -360]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 7 * * *" }
+          ]
+        }
+      },
+      "id": "n1",
+      "name": "Agendamento diário",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 160]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.legalmail.com.br/api/v1/notices",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "data_captura_inicio", "value": "={{ $today.minus({ days: 1 }).toFormat('yyyy-MM-dd') }}" },
+            { "name": "data_captura_fim", "value": "={{ $today.toFormat('yyyy-MM-dd') }}" },
+            { "name": "ordenar_por", "value": "data_captura" },
+            { "name": "ordem", "value": "asc" },
+            { "name": "limit", "value": "50" },
+            { "name": "offset", "value": "0" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n2",
+      "name": "Listar Entrada (notices)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0],
+      "credentials": {
+        "httpQueryAuth": { "id": "", "name": "Legalmail API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "__rl": true, "mode": "id", "value": "SUBSTITUA_PELO_ID_DA_PLANILHA" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "PRAZOS" },
+        "options": {}
+      },
+      "id": "n3",
+      "name": "Ler PRAZOS (todos os processos)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [260, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "", "name": "Google Sheets - Becker" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "__rl": true, "mode": "id", "value": "SUBSTITUA_PELO_ID_DA_PLANILHA" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "ATIVOS ATUAL" },
+        "options": {}
+      },
+      "id": "n4",
+      "name": "Ler ATIVOS ATUAL",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [260, 380],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "", "name": "Google Sheets - Becker" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.legalmail.com.br/api/v1/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [] },
+        "options": {}
+      },
+      "id": "n5",
+      "name": "Listar usuários do Legalmail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 560],
+      "credentials": {
+        "httpQueryAuth": { "id": "", "name": "Legalmail API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const resposta = $input.first().json;\nconst notices = resposta.notices || [];\nreturn notices\n  .filter(n => n.prazo_status === 'pendente' && n.idprocessos != null)\n  .map(n => ({\n    json: {\n      id_notice: n.id,\n      id_processo: n.idprocessos,\n      numero_processo: n.numero_processo,\n      tribunal: n.tribunal,\n      partes: n.partes,\n      tipo: n.tipo,\n      teor: n.teor,\n      data_disponibilizacao: n.data_disponibilizacao,\n    }\n  }));"
+      },
+      "id": "n6",
+      "name": "Filtrar pendentes e mapear campos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function ehIntimacaoDeAudiencia(tipo, teor) {\n  const palavras = ['audiência', 'audiencia'];\n  if (tipo) {\n    const t = tipo.toLowerCase();\n    return palavras.some(p => t.includes(p));\n  }\n  const txt = (teor || '').toLowerCase();\n  return palavras.some(p => txt.includes(p));\n}\n\nfunction contemDesignacaoPericia(teor) {\n  const txt = (teor || '').toLowerCase();\n  return ['perícia', 'pericia', 'pericial'].some(p => txt.includes(p));\n}\n\nconst item = $json;\nreturn {\n  json: {\n    ...item,\n    eh_audiencia: ehIntimacaoDeAudiencia(item.tipo, item.teor),\n    tem_pericia: contemDesignacaoPericia(item.teor),\n  }\n};"
+      },
+      "id": "n7",
+      "name": "Classificar intimação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-audiencia",
+              "leftValue": "={{ $json.eh_audiencia }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n8",
+      "name": "É audiência?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1040, 0]
+    },
+    {
+      "parameters": {},
+      "id": "n9",
+      "name": "TODO Parte 2 (audiência-perícia)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1300, -180]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.legalmail.com.br/api/v1/lawsuit/detail",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "idprocesso", "value": "={{ $json.id_processo }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n10",
+      "name": "Detalhe do processo (data_prazo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 80],
+      "credentials": {
+        "httpQueryAuth": { "id": "", "name": "Legalmail API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 500, system: 'Você lê o teor de intimações processuais brasileiras e devolve APENAS um JSON (sem texto fora dele, sem markdown) com os campos quantidade_dias (inteiro), regime (um de civel_dias_uteis, trabalhista_dias_uteis, juizado_especial_dias_corridos), tipo_tarefa (string curta, ex. MANIFESTAÇÃO, CIENCIA, CONTRARRAZÕES), descricao (resumo objetivo sem dois-pontos) e estimado_por_analogia (true/false — true quando o despacho não informa a quantidade de dias e você teve que inferir por analogia com um ato semelhante). Identifique o prazo específico do ato exato da intimação, nunca um prazo genérico quando existir prazo próprio para o recurso/manifestação em questão. Considere se a decisão comporta embargos de declaração. Regras de contagem, civil (CPC arts. 218-232) dias úteis, trabalhista (CLT art. 775 pós Lei 13.467/2017) dias úteis, Juizados Especiais (Lei 9.099/95, Enunciado FONAJE 165) dias corridos.', messages: [ { role: 'user', content: 'Tribunal: ' + $json.tribunal + String.fromCharCode(10) + 'Teor da intimação: ' + $json.teor } ] }) }}"
+      },
+      "id": "n11",
+      "name": "IA - interpretar intimação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 80],
+      "credentials": {
+        "httpHeaderAuth": { "id": "", "name": "Anthropic API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Classificar intimação').item.json;\nconst respostaIA = $json;\nconst texto = (respostaIA.content && respostaIA.content[0]) ? respostaIA.content[0].text : '{}';\nlet decisao;\ntry {\n  decisao = JSON.parse(texto);\n} catch (e) {\n  decisao = { erro_parse: true, texto_bruto: texto };\n}\nreturn {\n  json: {\n    ...original,\n    ...decisao,\n  }\n};"
+      },
+      "id": "n12",
+      "name": "Parsear resposta da IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 80]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function pascoa(ano) {\n  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100;\n  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);\n  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;\n  const i = Math.floor(c / 4), k = c % 4;\n  const l = (32 + 2 * e + 2 * i - h - k) % 7;\n  const m = Math.floor((a + 11 * h + 22 * l) / 451);\n  const mes = Math.floor((h + l - 7 * m + 114) / 31);\n  const dia = ((h + l - 7 * m + 114) % 31) + 1;\n  return new Date(Date.UTC(ano, mes - 1, dia));\n}\n\nfunction fmt(d) { return d.toISOString().slice(0, 10); }\nfunction addDays(dateStr, n) { return fmt(new Date(new Date(dateStr + 'T00:00:00Z').getTime() + n * 86400000)); }\n\nfunction feriadosNacionais(ano, incluirCarnaval) {\n  const p = pascoa(ano);\n  const feriados = new Set([\n    ano + '-01-01', ano + '-04-21', ano + '-05-01', ano + '-09-07',\n    ano + '-10-12', ano + '-11-02', ano + '-11-15', ano + '-12-25',\n    fmt(new Date(p.getTime() - 2 * 86400000)),\n  ]);\n  if (ano >= 2024) feriados.add(ano + '-11-20');\n  if (incluirCarnaval) {\n    const segundaStr = fmt(new Date(p.getTime() - 48 * 86400000));\n    feriados.add(segundaStr);\n    feriados.add(addDays(segundaStr, 1));\n  }\n  return feriados;\n}\n\n// Dados pesquisados e citados (ver docs/CALENDARIOS_FORENSES.md no repositório Python).\n// Cobre só TJSC e TRT12 para 2026 — qualquer outro tribunal/ano fica com\n// calendario_confirmado=false, usando só feriados nacionais.\nconst FERIADOS_TJSC_2026 = ['2026-04-02', '2026-06-04', '2026-05-25'];\nconst FERIADOS_TRT12_2026 = ['2026-08-10', '2026-10-30', '2026-12-07'];\n\nfunction suspensaoPrazosTjscTrt12(ano) {\n  const dias = [];\n  let d = ano + '-12-20';\n  const fimAno = ano + '-12-31';\n  while (d <= fimAno) { dias.push(d); d = addDays(d, 1); }\n  d = (ano + 1) + '-01-01';\n  const fim = (ano + 1) + '-01-20';\n  while (d <= fim) { dias.push(d); d = addDays(d, 1); }\n  return dias;\n}\n\nfunction calendarioParaTribunal(tribunal, anos) {\n  const normalizado = (tribunal || '').toUpperCase().replace(/[\\s-]/g, '');\n  const feriados = new Set();\n  anos.forEach(ano => feriadosNacionais(ano, true).forEach(f => feriados.add(f)));\n  let confirmado = false;\n  if (normalizado.includes('TJSC')) {\n    FERIADOS_TJSC_2026.forEach(f => feriados.add(f));\n    anos.forEach(ano => suspensaoPrazosTjscTrt12(ano).forEach(f => feriados.add(f)));\n    confirmado = true;\n  } else if (normalizado.includes('TRT12')) {\n    FERIADOS_TRT12_2026.forEach(f => feriados.add(f));\n    anos.forEach(ano => suspensaoPrazosTjscTrt12(ano).forEach(f => feriados.add(f)));\n    confirmado = true;\n  }\n  return { feriados, confirmado };\n}\n\nfunction diaSemanaUTC(dateStr) { return new Date(dateStr + 'T00:00:00Z').getUTCDay(); }\nfunction ehDiaUtil(dateStr, feriados) {\n  const dw = diaSemanaUTC(dateStr);\n  return dw !== 0 && dw !== 6 && !feriados.has(dateStr);\n}\nfunction proximoDiaUtil(dateStr, feriados) {\n  let d = dateStr;\n  while (!ehDiaUtil(d, feriados)) d = addDays(d, 1);\n  return d;\n}\nfunction somarDiasUteis(inicio, quantidade, feriados) {\n  let cursor = inicio, restantes = quantidade;\n  while (restantes > 0) {\n    cursor = addDays(cursor, 1);\n    if (ehDiaUtil(cursor, feriados)) restantes -= 1;\n  }\n  return cursor;\n}\nfunction subtrairDiasUteis(dateStr, quantidade, feriados) {\n  let cursor = dateStr, restantes = quantidade;\n  while (restantes > 0) {\n    cursor = addDays(cursor, -1);\n    if (ehDiaUtil(cursor, feriados)) restantes -= 1;\n  }\n  return cursor;\n}\nfunction somarDiasCorridos(inicio, quantidade, feriados) {\n  return proximoDiaUtil(addDays(inicio, quantidade), feriados);\n}\n\nconst item = $json;\nconst anoDisp = parseInt(item.data_disponibilizacao.slice(0, 4), 10);\nconst { feriados, confirmado } = calendarioParaTribunal(item.tribunal, [anoDisp, anoDisp + 1]);\n\nlet inicioContagem = ehDiaUtil(item.data_disponibilizacao, feriados)\n  ? proximoDiaUtil(addDays(item.data_disponibilizacao, 1), feriados)\n  : proximoDiaUtil(item.data_disponibilizacao, feriados);\n\nconst quantidadeDias = item.quantidade_dias || 0;\nlet dataFinalLegal;\nif (item.regime === 'juizado_especial_dias_corridos') {\n  dataFinalLegal = somarDiasCorridos(inicioContagem, quantidadeDias, feriados);\n} else {\n  dataFinalLegal = somarDiasUteis(inicioContagem, quantidadeDias, feriados);\n}\n\nconst dataFinalInterna = subtrairDiasUteis(dataFinalLegal, 2, feriados);\n\nlet dataPrazoTribunal = null;\ntry {\n  const detalhe = $('Detalhe do processo (data_prazo)').item.json;\n  const registro = Array.isArray(detalhe) ? detalhe[0] : detalhe;\n  dataPrazoTribunal = (registro && registro.data_prazo) ? registro.data_prazo : null;\n} catch (e) {}\n\nreturn {\n  json: {\n    ...item,\n    calendario_confirmado: confirmado,\n    inicio_contagem: inicioContagem,\n    data_final_legal: dataFinalLegal,\n    data_final_interna: dataFinalInterna,\n    data_prazo_tribunal: dataPrazoTribunal,\n    diverge_do_tribunal: !!(dataPrazoTribunal && dataPrazoTribunal !== dataFinalLegal),\n  }\n};"
+      },
+      "id": "n13",
+      "name": "Calcular prazo (feriados-tribunal)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2080, 80]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ativos = $('Ler ATIVOS ATUAL').all();\nconst usuarios = $('Listar usuários do Legalmail').all().map(i => i.json);\n\nfunction normalizarProcesso(s) { return (s || '').toString().replace(/\\D/g, ''); }\n\nconst numeroAlvo = normalizarProcesso($json.numero_processo);\nconst linhaAtivo = ativos.find(l => normalizarProcesso(l.json['Nº PROCESSO']) === numeroAlvo);\nconst advogadoAbreviado = linhaAtivo ? linhaAtivo.json['ADVOGADA ATUAL'] : null;\n\nlet idUsuario = null;\nlet nomeCompleto = advogadoAbreviado;\nif (advogadoAbreviado) {\n  const alvo = advogadoAbreviado.trim().toLowerCase();\n  let match = usuarios.find(u => (u.nome || '').trim().toLowerCase() === alvo);\n  if (!match) {\n    const candidatos = usuarios.filter(u => {\n      const partes = (u.nome || '').trim().split(/\\s+/);\n      return partes[0] && partes[0].toLowerCase() === alvo;\n    });\n    if (candidatos.length === 1) match = candidatos[0];\n  }\n  if (match) {\n    idUsuario = match.idusuarios;\n    nomeCompleto = match.nome;\n  }\n}\n\nreturn {\n  json: {\n    ...$json,\n    advogado: nomeCompleto,\n    id_usuario_legalmail: idUsuario,\n  }\n};"
+      },
+      "id": "n14",
+      "name": "Resolver advogado responsável",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2340, 80]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const linhasPrazos = $('Ler PRAZOS (todos os processos)').all();\nfunction normalizar(s) { return (s || '').toString().replace(/\\D/g, ''); }\nconst conhecidos = new Set(linhasPrazos.map(l => normalizar(l.json['Nº DO PROCESSO'])));\nconst numeroNormalizado = normalizar($json.numero_processo);\nreturn {\n  json: {\n    ...$json,\n    numero_processo_normalizado: numeroNormalizado,\n    caso_novo: !conhecidos.has(numeroNormalizado),\n  }\n};"
+      },
+      "id": "n15",
+      "name": "Verificar caso novo vs recorrente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-novo",
+              "leftValue": "={{ $json.caso_novo }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n16",
+      "name": "Caso novo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2860, 80]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "SUBSTITUA_PELO_ID_DA_PLANILHA" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "PRAZOS" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "TRIBUNAL": "={{ $json.tribunal }}",
+            "Nº DO PROCESSO": "={{ $json.numero_processo }}",
+            "CLIENTE": "={{ $json.partes }}",
+            "ADVOGADO": "={{ $json.advogado }}",
+            "STATUS": "PENDENTE",
+            "OBSERVAÇÕES": "={{ $json.estimado_por_analogia ? 'Quantidade de dias estimada por analogia, confirmar' : '' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "n17",
+      "name": "Adicionar linha em PRAZOS",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3120, -60],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "", "name": "Google Sheets - Becker" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "select": "channel",
+        "channelId": { "__rl": true, "mode": "name", "value": "#legalmail-aprovacoes" },
+        "message": "=Confirmar encarregamento e arquivamento? Processo {{$json.numero_processo}} ({{$json.tribunal}}), advogado {{$json.advogado}}, prazo legal {{$json.data_final_legal}} (interno {{$json.data_final_interna}}), tipo {{$json.tipo_tarefa}} — {{$json.descricao}}.{{$json.diverge_do_tribunal ? ' ATENÇÃO, diverge da data_prazo do tribunal (' + $json.data_prazo_tribunal + ').' : ''}}",
+        "approvalOptions": {
+          "values": { "approvalType": "double" }
+        },
+        "options": {}
+      },
+      "id": "n18",
+      "name": "Aprovar antes de encarregar-arquivar",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [3380, 80],
+      "credentials": {
+        "slackApi": { "id": "", "name": "Slack - Becker" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-aprovado",
+              "leftValue": "={{ $json.data?.approved }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n19",
+      "name": "Aprovado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3640, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.legalmail.com.br/api/v1/lawsuit/assign",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ idprocessos: $json.id_processo, idusuarios: $json.id_usuario_legalmail }) }}",
+        "options": {}
+      },
+      "id": "n20",
+      "name": "Encarregar advogado (assign)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3900, -40],
+      "credentials": {
+        "httpQueryAuth": { "id": "", "name": "Legalmail API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.legalmail.com.br/api/v1/lawsuit/archive",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fk_processo: $json.id_processo }) }}",
+        "options": {}
+      },
+      "id": "n21",
+      "name": "Arquivar para Acervo (archive)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4160, -40],
+      "credentials": {
+        "httpQueryAuth": { "id": "", "name": "Legalmail API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": { "__rl": true, "mode": "name", "value": "#legalmail-relatorios" },
+        "text": "=Processo {{$json.numero_processo}} encarregado a {{$json.advogado}} e arquivado para o Acervo. Prazo legal {{$json.data_final_legal}}, prazo interno {{$json.data_final_interna}}.{{$json.calendario_confirmado ? '' : ' Atenção, calendário forense deste tribunal não foi conferido, confirme feriados locais manualmente.'}}"
+      },
+      "id": "n22",
+      "name": "Enviar relatório final",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [4420, -40],
+      "credentials": {
+        "slackApi": { "id": "", "name": "Slack - Becker" }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "n23",
+      "name": "Aguardando revisão manual",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [3900, 260]
+    }
+  ],
+  "connections": {
+    "Agendamento diário": {
+      "main": [
+        [
+          { "node": "Listar Entrada (notices)", "type": "main", "index": 0 },
+          { "node": "Ler PRAZOS (todos os processos)", "type": "main", "index": 0 },
+          { "node": "Ler ATIVOS ATUAL", "type": "main", "index": 0 },
+          { "node": "Listar usuários do Legalmail", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Listar Entrada (notices)": {
+      "main": [[{ "node": "Filtrar pendentes e mapear campos", "type": "main", "index": 0 }]]
+    },
+    "Filtrar pendentes e mapear campos": {
+      "main": [[{ "node": "Classificar intimação", "type": "main", "index": 0 }]]
+    },
+    "Classificar intimação": {
+      "main": [[{ "node": "É audiência?", "type": "main", "index": 0 }]]
+    },
+    "É audiência?": {
+      "main": [
+        [{ "node": "TODO Parte 2 (audiência-perícia)", "type": "main", "index": 0 }],
+        [{ "node": "Detalhe do processo (data_prazo)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Detalhe do processo (data_prazo)": {
+      "main": [[{ "node": "IA - interpretar intimação", "type": "main", "index": 0 }]]
+    },
+    "IA - interpretar intimação": {
+      "main": [[{ "node": "Parsear resposta da IA", "type": "main", "index": 0 }]]
+    },
+    "Parsear resposta da IA": {
+      "main": [[{ "node": "Calcular prazo (feriados-tribunal)", "type": "main", "index": 0 }]]
+    },
+    "Calcular prazo (feriados-tribunal)": {
+      "main": [[{ "node": "Resolver advogado responsável", "type": "main", "index": 0 }]]
+    },
+    "Resolver advogado responsável": {
+      "main": [[{ "node": "Verificar caso novo vs recorrente", "type": "main", "index": 0 }]]
+    },
+    "Verificar caso novo vs recorrente": {
+      "main": [[{ "node": "Caso novo?", "type": "main", "index": 0 }]]
+    },
+    "Caso novo?": {
+      "main": [
+        [{ "node": "Adicionar linha em PRAZOS", "type": "main", "index": 0 }],
+        [{ "node": "Aprovar antes de encarregar-arquivar", "type": "main", "index": 0 }]
+      ]
+    },
+    "Adicionar linha em PRAZOS": {
+      "main": [[{ "node": "Aprovar antes de encarregar-arquivar", "type": "main", "index": 0 }]]
+    },
+    "Aprovar antes de encarregar-arquivar": {
+      "main": [[{ "node": "Aprovado?", "type": "main", "index": 0 }]]
+    },
+    "Aprovado?": {
+      "main": [
+        [{ "node": "Encarregar advogado (assign)", "type": "main", "index": 0 }],
+        [{ "node": "Aguardando revisão manual", "type": "main", "index": 0 }]
+      ]
+    },
+    "Encarregar advogado (assign)": {
+      "main": [[{ "node": "Arquivar para Acervo (archive)", "type": "main", "index": 0 }]]
+    },
+    "Arquivar para Acervo (archive)": {
+      "main": [[{ "node": "Enviar relatório final", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "meta": { "templateCredsSetupCompleted": false },
+  "tags": []
+}
